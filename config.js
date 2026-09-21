@@ -15,7 +15,7 @@ window.FERRY_CONFIG = {
     // Да, он виден в коде страницы. Поэтому у него НЕТ прав на запись —
     // подделать позицию парома через него нельзя.
     username: "ferry-web",
-    password: "0502704914",
+    password: "0663458440",
     topic: "ferry/position",
   },
 
