@@ -168,7 +168,7 @@
     </div>
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5f7682" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7"/><path d="M9 7h8v8"/></svg>
   </a>
-  <div class="foot"><span>Unofficial tracker</span><span>© OpenStreetMap · CARTO</span></div>
+  <div class="foot"><span>Unofficial tracker</span><span>© Esri · OpenStreetMap</span></div>
 </section>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -214,8 +214,9 @@
     zoomControl:false, attributionControl:false, dragging:false, touchZoom:false,
     scrollWheelZoom:false, doubleClickZoom:false, boxZoom:false, keyboard:false, zoomSnap:0.1
   });
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png',
-    { subdomains:'abcd', maxZoom:19 }).addTo(map);
+  // Light grey base map without labels (Esri, free, no key)
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    { maxNativeZoom:16, maxZoom:19 }).addTo(map);
 
   const bounds = L.latLngBounds([[P.island.lat, P.island.lon], [P.mainland.lat, P.mainland.lon]]);
   function fit(){
@@ -268,7 +269,7 @@
   // ================================================================
   //  Data
   // ================================================================
-  let last = null, lastAtS = 0, conn = 'connecting', localPier = null;
+  let last = null, lastAtS = 0, conn = 'connecting', connErr = '', localPier = null;
   let shown = null, target = null, animFrom = null, animStart = 0;
 
   function onMessage(m){
@@ -375,7 +376,7 @@
     const live = ['move','pier','long','away'].includes(m.mode);
     $('dot').classList.toggle('live', live);
     $('sub').classList.toggle('warn', m.mode === 'long');
-    const status = live ? `Live · updated ${ago(m.age)}` : conn === 'error' ? 'Offline' : conn === 'connecting' ? 'Connecting…' : 'Live';
+    const status = live ? `Live · updated ${ago(m.age)}` : conn === 'error' ? 'Offline' + (connErr ? ' · ' + connErr : '') : conn === 'connecting' ? 'Connecting…' : 'Live';
 
     let showBar = false, showDeps = false;
     if (m.mode === 'wait'){
@@ -555,12 +556,12 @@
     clientId:'web-' + Math.random().toString(16).slice(2, 8),
     clean:true, reconnectPeriod:3000,
   });
-  client.on('connect', () => { conn = 'ok'; client.subscribe(b.topic); render(); });
+  client.on('connect', () => { conn = 'ok'; connErr = ''; client.subscribe(b.topic); render(); });
   client.on('message', (topic, buf) => {
     try { onMessage(JSON.parse(buf.toString())); } catch(e){ console.warn('bad message', e); }
   });
-  client.on('error', e => { conn = 'error'; render(); console.error(e); });
-  client.on('offline', () => { conn = 'error'; render(); });
+  client.on('error', e => { conn = 'error'; connErr = String((e && e.message) || e).slice(0, 60); render(); console.error(e); });
+  client.on('offline', () => { conn = 'error'; if (!connErr) connErr = 'no connection'; render(); });
 })();
 </script>
 </body>
