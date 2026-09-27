@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>Valentia Ferry — live</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{
+    --card:#ffffff;
+    --ink:#0d2a3a;
+    --muted:#4d6470;
+    --soft:#5f7682;
+    --line:#e2eaed;
+    --sea:#1b6f93;
+    --sea-soft:#e6f2f7;
+    --hull:#e4572e;
+    --live:#1d9e75;
+    --stale:#a3b1b7;
+    --shadow:0 10px 30px rgba(13,42,58,.16), 0 2px 6px rgba(13,42,58,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:'Onest',system-ui,-apple-system,"Segoe UI",sans-serif;
+    color:var(--ink);background:#cfe3ea;overflow:hidden;
+    -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;
+  }
+  #map{position:absolute;inset:0;z-index:1;background:#cfe3ea}
+  .leaflet-container{font-family:inherit;background:#cfe3ea;cursor:default}
+
+  /* ---------- Top ---------- */
+  .top{position:absolute;z-index:3;top:calc(14px + env(safe-area-inset-top));left:12px;right:12px;
+       display:flex;pointer-events:none}
+  .brand{display:flex;align-items:center;gap:10px;background:var(--card);border-radius:999px;
+         padding:7px 14px 7px 7px;box-shadow:var(--shadow)}
+  .logo{width:32px;height:32px;border-radius:50%;background:var(--sea);display:grid;place-items:center;flex:none}
+  .brand b{display:block;font-size:15px;font-weight:700;line-height:1.1}
+  .brand small{display:block;font-size:11px;color:var(--soft)}
+
+  /* ---------- Bottom card ---------- */
+  .sheet{position:absolute;z-index:3;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));
+         max-width:440px;margin:0 auto;background:var(--card);border-radius:20px;box-shadow:var(--shadow);
+         padding:16px 18px 12px;display:flex;flex-direction:column;gap:12px}
+  @media (min-width:760px){ .sheet{left:24px;right:auto;bottom:24px;width:400px;margin:0} }
+  .state{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--muted)}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--stale);flex:none;position:relative}
+  .dot.live{background:var(--live)}
+  .dot.live::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2px solid var(--live);
+                   opacity:0;animation:ping 2s ease-out infinite}
+  @keyframes ping{0%{transform:scale(.5);opacity:.7}100%{transform:scale(1.4);opacity:0}}
+  .headline{font-size:22px;font-weight:800;letter-spacing:-.02em;line-height:1.15}
+  .sub{font-size:15px;color:var(--muted);margin-top:3px}
+  .sub b{color:var(--sea)}
+  .sub.warn b{color:#b4441f}
+
+  .bar .ends{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--soft)}
+  .track{position:relative;height:6px;border-radius:6px;background:var(--line);margin:9px 8px 4px}
+  .track .zone{position:absolute;top:0;bottom:0;border-radius:6px;background:#d3e7ef;display:none}
+  .track .fill{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:var(--sea);width:0;transition:width .8s ease}
+  .track .pin{position:absolute;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;
+              background:var(--hull);border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.25);left:0;transition:left .8s ease}
+
+  .deps{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:6px}
+  .deps .head{display:flex;align-items:baseline;justify-content:space-between}
+  .deps .head span:first-child{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .deps .head span:last-child{font-size:11px;color:var(--soft)}
+  .row{display:grid;grid-template-columns:minmax(0,1fr) 24px minmax(0,1fr);align-items:center;padding:0 10px}
+  .cols{font-size:12px;font-weight:700;color:var(--soft)}
+  .cols span:last-child,.row .r{text-align:right}
+  .list{height:76px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;
+        scroll-snap-type:y mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .list::-webkit-scrollbar{display:none}
+  .list .row{flex:none;height:36px;border-radius:10px;font-size:15px;font-weight:500;scroll-snap-align:start}
+  .list .row.first{background:var(--sea-soft);font-size:16px;font-weight:700}
+  .list .row.first .next{font-weight:800;font-size:17px}
+  .list .row .gone{color:#8a9aa2;font-weight:500;font-size:14px}
+  .list .row:nth-child(n+4){color:var(--muted)}
+  .more{display:flex;align-items:center;justify-content:center;gap:4px;font-size:11px;font-weight:600;color:var(--soft)}
+
+  .ad{display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;border:1px dashed #b7c3c8;
+      background:#f7f9fa;color:var(--ink);text-decoration:none;transition:opacity .3s}
+  .ad.fade{opacity:0}
+  .ad .lg{width:48px;height:48px;flex:none;border-radius:10px;background:var(--line);display:grid;place-items:center;
+          font-size:18px;font-weight:800;color:var(--soft);overflow:hidden}
+  .ad .lg img{width:100%;height:100%;object-fit:cover}
+  .ad .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+  .ad .t1{display:flex;align-items:center;gap:6px;min-width:0}
+  .ad .tag{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--soft);
+           padding:1px 6px;border-radius:6px;background:var(--line);flex:none}
+  .ad .t1 b{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ad .t2{font-size:13px;color:var(--muted);line-height:1.3;overflow:hidden;text-overflow:ellipsis;
+          display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .foot{font-size:10px;color:#7d8e96;display:flex;justify-content:space-between}
+
+  /* ---------- Map marks ---------- */
+  .pier{position:relative}
+  .pier i{position:absolute;left:-12px;top:-12px;width:24px;height:24px;border-radius:50%;background:#fff;
+          border:2.5px solid var(--ink);box-shadow:0 1px 4px rgba(0,0,0,.2)}
+  .pier i::after{content:"";position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;
+                 border-radius:50%;background:var(--ink)}
+  .pier span{position:absolute;left:0;transform:translateX(-50%);white-space:nowrap;font-size:12px;font-weight:700;
+             background:rgba(255,255,255,.92);padding:3px 8px;border-radius:8px;color:var(--ink)}
+  .pier.island span{top:18px}
+  .pier.mainland span{bottom:18px}
+
+  .boat{width:40px;height:40px;position:relative}
+  .boat .halo{position:absolute;inset:-6px;border-radius:50%;background:rgba(228,87,46,.18)}
+  .boat.live .halo{animation:halo 2.4s ease-out infinite}
+  .boat:not(.live) .halo{display:none}
+  @keyframes halo{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.4);opacity:0}}
+  .boat svg{position:absolute;inset:0}
+
+  .bubble{position:absolute;top:16px;left:18px;display:flex;align-items:center;gap:6px;white-space:nowrap;
+          padding:7px 11px;border-radius:12px;background:var(--ink);color:#fff;font-size:13px;font-weight:600;
+          box-shadow:0 4px 14px rgba(13,42,58,.25)}
+  .bubble.left{left:auto;right:18px}
+  .bubble.warn{background:#b4441f}
+  .chev svg{display:block}
+</style>
+</head>
+<body>
+
+<div id="map" aria-label="Map of the ferry crossing"></div>
+
+<div class="top">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 17c1.5 1 3 1 4.5 0s3-1 4.5 0 3 1 4.5 0 3-1 4.5 0"/><path d="M5 14l1-5h12l1 5"/><path d="M9 9V6h6v3"/>
+      </svg>
+    </div>
+    <div><b>Valentia Ferry</b><small>Knightstown ⇄ Reenard Point</small></div>
+  </div>
+</div>
+
+<section class="sheet" id="sheet" aria-live="polite">
+  <div class="state"><span class="dot" id="dot"></span><span id="state">Connecting…</span></div>
+  <div>
+    <div class="headline" id="headline">Waiting for the ferry…</div>
+    <div class="sub" id="sub">No data from the ferry yet</div>
+  </div>
+
+  <div class="bar" id="bar" hidden>
+    <div class="ends"><span id="endA"></span><span id="endB"></span></div>
+    <div class="track" id="track"><div class="zone" id="zone"></div><div class="fill" id="fill"></div><div class="pin" id="pin"></div></div>
+  </div>
+
+  <div class="deps" id="deps" hidden>
+    <div class="head"><span>Departures</span><span>approx. ±1–2 min</span></div>
+    <div class="row cols"><span>From Valentia</span><span></span><span>From Reenard Point</span></div>
+    <div class="list" id="list"></div>
+    <div class="more">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#5f7682" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      <span>Scroll for 3 more trips</span>
+    </div>
+  </div>
+
+  <a class="ad" id="ad" rel="noopener sponsored" target="_blank">
+    <div class="lg" id="adLogo"></div>
+    <div class="tx">
+      <div class="t1"><span class="tag">Ad</span><b id="adTitle"></b></div>
+      <div class="t2" id="adText"></div>
+    </div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5f7682" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7"/><path d="M9 7h8v8"/></svg>
+  </a>
+  <div class="foot"><span>Unofficial tracker</span><span>© OpenStreetMap · CARTO</span></div>
+</section>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/mqtt@5.7.0/dist/mqtt.min.js"></script>
+<script src="config.js"></script>
+<script>
+(function(){
+  const C = window.FERRY_CONFIG;
+  const P = { island: C.piers.island, mainland: C.piers.mainland };
+  const NAME = { island: 'Valentia', mainland: 'Reenard Point' };
+  const DEF_C = ((C.defaults && C.defaults.crossingMin) || 6) * 60;
+  const DEF_S = ((C.defaults && C.defaults.stopMin) || 3) * 60;
+  const LONG  = (C.longStopMin || 30) * 60;
+  const STALE = C.staleAfterSeconds || 150;
+  const ROWS  = 5;
+  const $ = id => document.getElementById(id);
+  const other = k => k === 'island' ? 'mainland' : 'island';
+  const clamp = x => Math.max(0, Math.min(1, x));
+  const nowS = () => Date.now() / 1000;
+
+  // ================================================================
+  //  Maths
+  // ================================================================
+  function distM(a, b){
+    const k = Math.PI/180, dp = (b.lat-a.lat)*k, dl = (b.lon-a.lon)*k;
+    const x = Math.sin(dp/2)**2 + Math.cos(a.lat*k)*Math.cos(b.lat*k)*Math.sin(dl/2)**2;
+    return 2*6371000*Math.asin(Math.sqrt(x));
+  }
+  function bearing(a, b){
+    const k = Math.PI/180;
+    const y = Math.sin((b.lon-a.lon)*k)*Math.cos(b.lat*k);
+    const x = Math.cos(a.lat*k)*Math.sin(b.lat*k) - Math.sin(a.lat*k)*Math.cos(b.lat*k)*Math.cos((b.lon-a.lon)*k);
+    return (Math.atan2(y, x)*180/Math.PI + 360) % 360;
+  }
+  const angleOff = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
+  const fmt = s => new Date(s*1000).toLocaleTimeString('en-IE',
+    { timeZone:'Europe/Dublin', hour:'2-digit', minute:'2-digit', hour12:false });
+
+  // ================================================================
+  //  Map (fixed: no zoom, no dragging)
+  // ================================================================
+  const map = L.map('map', {
+    zoomControl:false, attributionControl:false, dragging:false, touchZoom:false,
+    scrollWheelZoom:false, doubleClickZoom:false, boxZoom:false, keyboard:false, zoomSnap:0.1
+  });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png',
+    { subdomains:'abcd', maxZoom:19 }).addTo(map);
+
+  const bounds = L.latLngBounds([[P.island.lat, P.island.lon], [P.mainland.lat, P.mainland.lon]]);
+  function fit(){
+    map.invalidateSize();
+    const wide = window.innerWidth >= 760;
+    map.fitBounds(bounds, {
+      paddingTopLeft: [wide ? 460 : 60, 110],
+      paddingBottomRight: [60, wide ? 60 : $('sheet').offsetHeight + 50],
+      maxZoom: 17, animate: false
+    });
+  }
+
+  L.polyline([[P.island.lat, P.island.lon], [P.mainland.lat, P.mainland.lon]],
+    { color:'#1b6f93', weight:2, opacity:.45, dashArray:'4 8', interactive:false }).addTo(map);
+
+  function pierMark(k, label){
+    L.marker([P[k].lat, P[k].lon], { interactive:false, keyboard:false,
+      icon: L.divIcon({ className:'', iconSize:[0,0], html:`<div class="pier ${k}"><i></i><span>${label}</span></div>` })
+    }).addTo(map);
+  }
+  pierMark('island', 'Valentia · Knightstown');
+  pierMark('mainland', 'Reenard Point');
+
+  const trail = L.polyline([], { color:'#e4572e', weight:4, opacity:.75, dashArray:'1 9',
+                                  lineCap:'round', interactive:false }).addTo(map);
+  function chevIcon(deg, op){
+    return L.divIcon({ className:'chev', iconSize:[18,18], iconAnchor:[9,9],
+      html:`<svg width="18" height="18" viewBox="-9 -9 18 18" style="transform:rotate(${deg}deg);opacity:${op}">
+              <path d="M-6 3 L0 -4 L6 3" fill="none" stroke="#1b6f93" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>` });
+  }
+  const chevs = [L.marker([0,0], { interactive:false }), L.marker([0,0], { interactive:false })];
+
+  function boatIcon(kind, deg){
+    const col = kind === 'grey' ? '#a3b1b7' : '#e4572e';
+    let inner;
+    if (kind === 'move')
+      inner = `<g transform="rotate(${deg} 20 20)"><path d="M20 11 L27 27 L20 23 L13 27 Z" fill="${col}"/></g>`;
+    else if (kind === 'pier')
+      inner = `<rect x="14.5" y="14" width="4" height="12" rx="1.5" fill="${col}"/><rect x="21.5" y="14" width="4" height="12" rx="1.5" fill="${col}"/>`;
+    else
+      inner = `<circle cx="20" cy="20" r="5" fill="${col}"/>`;
+    return L.divIcon({ className:'', iconSize:[40,40], iconAnchor:[20,20],
+      html:`<div class="boat ${kind === 'grey' ? '' : 'live'}"><div class="halo"></div>
+              <svg viewBox="0 0 40 40" width="40" height="40">
+                <circle cx="20" cy="20" r="15" fill="#fff" stroke="${col}" stroke-width="2.5"/>${inner}
+              </svg></div>` });
+  }
+  let boat = null, bubble = null, iconKey = '', bubbleKey = '';
+
+  // ================================================================
+  //  Data
+  // ================================================================
+  let last = null, lastAtS = 0, conn = 'connecting', localPier = null;
+  let shown = null, target = null, animFrom = null, animStart = 0;
+
+  function onMessage(m){
+    last = m; lastAtS = nowS();
+    if (typeof m.lat === 'number' && typeof m.lon === 'number'){
+      if (typeof m.spd !== 'number') m.spd = 0;
+      const t = { lat:m.lat, lon:m.lon };
+      if (!shown) shown = t;
+      animFrom = { lat:shown.lat, lon:shown.lon }; target = t; animStart = performance.now();
+      requestAnimationFrame(animate);
+    }
+    render();
+  }
+  function animate(ts){
+    if (!target) return;
+    const k = Math.min(1, (ts - animStart) / 1200), e = k < .5 ? 2*k*k : 1 - (-2*k + 2)**2 / 2;
+    shown = { lat: animFrom.lat + (target.lat - animFrom.lat)*e, lon: animFrom.lon + (target.lon - animFrom.lon)*e };
+    placeGeo();
+    if (k < 1) requestAnimationFrame(animate);
+  }
+
+  // ================================================================
+  //  Forecast
+  // ================================================================
+  function buildRows(first, Cs, Ss, pastIsland){
+    const seq = [first];
+    while (seq.length < 14){ const p = seq[seq.length-1]; seq.push({ pier:other(p.pier), t:p.t + Cs + Ss }); }
+    const rows = []; let i = 0;
+    if (first.pier === 'mainland'){ rows.push({ v:pastIsland, r:seq[0].t }); i = 1; }
+    while (rows.length < ROWS){ rows.push({ v:seq[i].t, r:seq[i+1].t }); i += 2; }
+    return rows;
+  }
+
+  function model(){
+    const n = nowS();
+    if (!last) return { mode:'wait' };
+    if (last.off) return { mode:'off' };
+    if (typeof last.lat !== 'number') return { mode:'wait' };
+    const pos = { lat:last.lat, lon:last.lon };
+    const age = n - lastAtS;
+    if (age > STALE) return { mode:'stale', age };
+
+    const Cs = last.avgC || DEF_C, Ss = last.avgS || DEF_S;
+    const dI = distM(pos, P.island), dM = distM(pos, P.mainland), total = distM(P.island, P.mainland);
+    const nearest = dI < dM ? 'island' : 'mainland';
+    let st = last.st;
+    if (!st){
+      if (Math.min(dI, dM) <= 40 && last.spd < 2) st = 'pier';
+      else if (dI + dM < total * 1.6) st = 'move';
+      else return { mode:'away', age };
+    }
+
+    if (st === 'pier'){
+      const pier = last.pier || nearest;
+      let since = last.since;
+      if (!since){
+        if (!localPier || localPier.k !== pier) localPier = { k:pier, t:lastAtS };
+        since = localPier.t;
+      } else localPier = null;
+      const waited = Math.max(0, n - since);
+      if (waited > LONG) return { mode:'long', age, pier, waited };
+      const dep = Math.max(since + Ss, n);
+      const lo = since + Ss - 60 - n, hi = since + Ss + 60 - n;
+      const past = pier === 'mainland' ? since - Cs : null;
+      return { mode:'pier', age, pier, waited, lo, hi, Ss, rows: buildRows({ pier, t:dep }, Cs, Ss, past) };
+    }
+
+    let from = last.from;
+    if (!from){
+      if (last.hdg > 0){
+        const toI = angleOff(bearing(pos, P.island), last.hdg), toM = angleOff(bearing(pos, P.mainland), last.hdg);
+        from = toI < toM ? 'mainland' : 'island';
+      } else from = nearest;
+    }
+    const to = other(from);
+    const dFrom = from === 'island' ? dI : dM, dTo = from === 'island' ? dM : dI;
+    const frac = clamp(dFrom / (dFrom + dTo));
+    const eta = Math.max(lastAtS + Cs * (1 - frac), n);
+    const past = from === 'island' ? (last.dep || eta - Cs) : null;
+    return { mode:'move', age, from, to, frac, eta, rows: buildRows({ pier:to, t:eta + Ss }, Cs, Ss, past) };
+  }
+
+  // ================================================================
+  //  Drawing
+  // ================================================================
+  let cur = { mode:'wait' };
+
+  function rangeText(lo, hi){
+    if (hi < 60) return 'any moment';
+    const a = Math.max(0, Math.floor(lo / 60)), b = Math.ceil(hi / 60);
+    return a === 0 ? `under ${b} min` : `${a}–${b} min`;
+  }
+  const ago = s => s < 60 ? `${Math.round(s)} s ago` : `${Math.floor(s/60)} min ago`;
+
+  function setText(state, head, sub, subHtml){
+    $('state').textContent = state;
+    $('headline').textContent = head;
+    if (subHtml) $('sub').innerHTML = subHtml; else $('sub').textContent = sub;
+  }
+
+  function render(){
+    const m = cur = model();
+    const n = nowS();
+    const live = ['move','pier','long','away'].includes(m.mode);
+    $('dot').classList.toggle('live', live);
+    $('sub').classList.toggle('warn', m.mode === 'long');
+    const status = live ? `Live · updated ${ago(m.age)}` : conn === 'error' ? 'Offline' : conn === 'connecting' ? 'Connecting…' : 'Live';
+
+    let showBar = false, showDeps = false;
+    if (m.mode === 'wait'){
+      setText(status, 'Waiting for the ferry…', 'No data from the ferry yet');
+    } else if (m.mode === 'off'){
+      setText('Not running', 'Not running until ' + (last.until || 'morning'), 'Back on the map in the morning');
+    } else if (m.mode === 'stale'){
+      setText('No fresh data', 'No fresh data', 'The ferry may not be running right now');
+    } else if (m.mode === 'away'){
+      setText(status, 'Ferry is off the route', 'No forecast right now');
+    } else if (m.mode === 'long'){
+      setText(status, 'At ' + NAME[m.pier] + ' longer than usual', '',
+        `Waiting <b>${Math.floor(m.waited/60)} min</b> · service may be suspended`);
+    } else if (m.mode === 'pier'){
+      showBar = showDeps = true;
+      setText(status, 'At ' + NAME[m.pier], '',
+        `Leaves in <b>${rangeText(m.lo, m.hi)}</b> · waiting ${Math.floor(m.waited/60)} min`);
+      const max = m.Ss + 60;
+      $('endA').textContent = 'Stop';
+      $('endB').textContent = `usually ${Math.round((m.Ss-60)/60)}–${Math.round(max/60)} min`;
+      $('track').style.margin = '9px 0 4px';
+      $('fill').style.width = (clamp(m.waited / max) * 100) + '%';
+      $('pin').style.display = 'none';
+      const z = $('zone'); z.style.display = 'block';
+      z.style.left = ((m.Ss - 60) / max * 100) + '%'; z.style.width = (120 / max * 100) + '%';
+    } else if (m.mode === 'move'){
+      showBar = showDeps = true;
+      const mins = Math.round((m.eta - n) / 60);
+      setText(status, 'Heading to ' + NAME[m.to], '',
+        `Arrives <b>${fmt(m.eta)}</b> · ${mins < 1 ? 'arriving now' : 'in ' + mins + ' min'}`);
+      $('endA').textContent = NAME[m.from];
+      $('endB').textContent = NAME[m.to];
+      $('track').style.margin = '9px 8px 4px';
+      $('fill').style.width = (m.frac * 100) + '%';
+      const pin = $('pin'); pin.style.display = 'block'; pin.style.left = (m.frac * 100) + '%';
+      $('zone').style.display = 'none';
+    }
+    $('bar').hidden = !showBar;
+    $('deps').hidden = !showDeps;
+    if (showDeps) drawRows(m.rows, n);
+    drawMap(m, n);
+    placeFit();
+  }
+
+  let rowsKey = '';
+  function drawRows(rows, n){
+    const cell = (t, cls) => {
+      if (t == null) return `<span class="${cls}">—</span>`;
+      if (t < n) return `<span class="${cls} gone">${fmt(t)} · departed</span>`;
+      return `<span class="${cls}">~${fmt(t)}</span>`;
+    };
+    const arrow = col => `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${col}" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>`;
+    const html = rows.map((r, i) => {
+      const nextR = i === 0 && r.v != null && r.v < n;
+      return `<div class="row${i === 0 ? ' first' : ''}">${cell(r.v, 'l')}${arrow(i === 0 ? '#1b6f93' : '#9aabb2')}${cell(r.r, 'r' + (nextR ? ' next' : ''))}</div>`;
+    }).join('');
+    if (html !== rowsKey){ rowsKey = html; $('list').innerHTML = html; }
+  }
+
+  function drawMap(m, n){
+    const moving = m.mode === 'move', atPier = m.mode === 'pier' || m.mode === 'long';
+    if (!shown){ return; }
+
+    let kind = moving ? 'move' : atPier ? 'pier' : 'grey';
+    const deg = moving ? Math.round(bearing(P[m.from], P[m.to])) : 0;
+    const key = kind + deg;
+    if (!boat) boat = L.marker([shown.lat, shown.lon], { interactive:false, zIndexOffset:1000 }).addTo(map);
+    if (key !== iconKey){ iconKey = key; boat.setIcon(boatIcon(kind, deg)); }
+
+    // Bubble text
+    let txt = '', warn = false;
+    if (moving){
+      const mins = Math.round((m.eta - n) / 60);
+      txt = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg><span>${NAME[m.to]} · ${mins < 1 ? 'arriving' : mins + ' min'}</span>`;
+    } else if (m.mode === 'pier'){
+      txt = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>At pier · leaves in ${rangeText(m.lo, m.hi)}</span>`;
+    } else if (m.mode === 'long'){
+      warn = true;
+      txt = `<span>Stopped · ${Math.floor(m.waited/60)} min</span>`;
+    }
+    const pt = map.latLngToContainerPoint([shown.lat, shown.lon]);
+    const side = pt.x > window.innerWidth - 220 ? 'left' : 'right';
+    const bkey = txt + side + warn;
+    if (!txt){ if (bubble){ map.removeLayer(bubble); bubble = null; bubbleKey = ''; } }
+    else {
+      if (!bubble) bubble = L.marker([shown.lat, shown.lon], { interactive:false, zIndexOffset:900 }).addTo(map);
+      if (bkey !== bubbleKey){
+        bubbleKey = bkey;
+        bubble.setIcon(L.divIcon({ className:'', iconSize:[0,0],
+          html:`<div class="bubble ${side === 'left' ? 'left' : ''} ${warn ? 'warn' : ''}">${txt}</div>` }));
+      }
+    }
+
+    // Chevrons ahead + trail behind (only while moving)
+    chevs.forEach((c, i) => {
+      if (moving){ c.setIcon(chevIcon(deg, i === 0 ? 1 : .6)); if (!map.hasLayer(c)) c.addTo(map); }
+      else if (map.hasLayer(c)) map.removeLayer(c);
+    });
+    placeGeo();
+  }
+
+  function placeGeo(){
+    if (!shown || !boat) return;
+    const ll = [shown.lat, shown.lon];
+    boat.setLatLng(ll);
+    if (bubble) bubble.setLatLng(ll);
+    if (cur.mode === 'move'){
+      const to = P[cur.to];
+      [.4, .75].forEach((f, i) => chevs[i].setLatLng([shown.lat + (to.lat - shown.lat)*f, shown.lon + (to.lon - shown.lon)*f]));
+      trail.setLatLngs([[P[cur.from].lat, P[cur.from].lon], ll]);
+    } else trail.setLatLngs([]);
+  }
+
+  // Refit when the card changes height
+  let lastSheetH = 0;
+  function placeFit(){
+    const h = $('sheet').offsetHeight;
+    if (Math.abs(h - lastSheetH) > 4){ lastSheetH = h; fit(); placeGeo(); }
+  }
+  window.addEventListener('resize', () => { lastSheetH = 0; placeFit(); });
+
+  // ================================================================
+  //  Ads
+  // ================================================================
+  const ads = (C.ads && C.ads.length) ? C.ads
+            : [{ title:'Advertise here', text:'Your café, hotel or tour on this page', link:'', logo:'' }];
+  let adI = 0;
+  function showAd(){
+    const a = ads[adI % ads.length], el = $('ad');
+    $('adTitle').textContent = a.title || '';
+    $('adText').textContent = a.text || '';
+    const lg = $('adLogo'); lg.textContent = '';
+    if (a.logo){ const img = new Image(); img.alt = ''; img.src = a.logo; lg.appendChild(img); }
+    else lg.textContent = (a.title || '?').trim().charAt(0).toUpperCase();
+    if (a.link){ el.href = a.link; el.removeAttribute('aria-disabled'); }
+    else { el.removeAttribute('href'); el.setAttribute('aria-disabled', 'true'); }
+  }
+  showAd();
+  if (ads.length > 1){
+    setInterval(() => {
+      $('ad').classList.add('fade');
+      setTimeout(() => { adI++; showAd(); $('ad').classList.remove('fade'); }, 300);
+    }, (C.adRotateSeconds || 8) * 1000);
+  }
+
+  // ================================================================
+  //  Start
+  // ================================================================
+  fit();
+  render();
+  setInterval(render, 1000);
+
+  if (location.hash === '#demo'){
+    // DEMO: pretend ferry, real-time cycle (6 min crossing, 3 min stop)
+    conn = 'ok';
+    const Cs = 360, Ss = 180, cyc = 2*(Cs + Ss), t0 = nowS() - (Ss + 120);
+    const lerp = (a, b, f) => ({ lat:a.lat + (b.lat-a.lat)*f, lon:a.lon + (b.lon-a.lon)*f });
+    function demo(){
+      const n = nowS(), t = (n - t0) % cyc, base = n - t;
+      let msg;
+      if (t < Ss) msg = { ...P.island, spd:.2, st:'pier', pier:'island', since:base };
+      else if (t < Ss + Cs){ const p = lerp(P.island, P.mainland, (t-Ss)/Cs);
+        msg = { ...p, spd:7.5, st:'move', from:'island', dep:base+Ss }; }
+      else if (t < 2*Ss + Cs) msg = { ...P.mainland, spd:.2, st:'pier', pier:'mainland', since:base+Ss+Cs };
+      else { const p = lerp(P.mainland, P.island, (t-2*Ss-Cs)/Cs);
+        msg = { ...p, spd:7.5, st:'move', from:'mainland', dep:base+2*Ss+Cs }; }
+      onMessage({ lat:msg.lat, lon:msg.lon, spd:msg.spd, hdg:0, st:msg.st, pier:msg.pier, since:msg.since,
+                  from:msg.from, dep:msg.dep, avgC:Cs, avgS:Ss, v:3 });
+    }
+    demo(); setInterval(demo, 5000);
+    return;
+  }
+
+  const b = C.broker;
+  const client = mqtt.connect(`wss://${b.host}:${b.port}${b.path}`, {
+    username:b.username, password:b.password,
+    clientId:'web-' + Math.random().toString(16).slice(2, 8),
+    clean:true, reconnectPeriod:3000,
+  });
+  client.on('connect', () => { conn = 'ok'; client.subscribe(b.topic); render(); });
+  client.on('message', (topic, buf) => {
+    try { onMessage(JSON.parse(buf.toString())); } catch(e){ console.warn('bad message', e); }
+  });
+  client.on('error', e => { conn = 'error'; render(); console.error(e); });
+  client.on('offline', () => { conn = 'error'; render(); });
+})();
+</script>
+</body>
+</html>
