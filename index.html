@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <style>
   :root{
     --card:#ffffff;
@@ -27,11 +28,11 @@
   html,body{height:100%}
   body{
     font-family:'Onest',system-ui,-apple-system,"Segoe UI",sans-serif;
-    color:var(--ink);background:#cfe3ea;overflow:hidden;
+    color:var(--ink);background:#9fd2ec;overflow:hidden;
     -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;
   }
-  #map{position:absolute;inset:0;z-index:1;background:#cfe3ea}
-  .leaflet-container{font-family:inherit;background:#cfe3ea;cursor:default}
+  #map{position:absolute;inset:0;z-index:1;background:#9fd2ec}
+  .leaflet-container{font-family:inherit;background:#9fd2ec;cursor:default}
 
   /* ---------- Top ---------- */
   .top{position:absolute;z-index:3;top:calc(14px + env(safe-area-inset-top));left:12px;right:12px;
@@ -121,6 +122,39 @@
   .bubble.left{left:auto;right:18px}
   .bubble.warn{background:#b4441f}
   .chev svg{display:block}
+
+  /* ---------- Brighter look ---------- */
+  :root{ --sea:#0b73a8; --sea-deep:#075a86; --sun:#ffb13b; --hull:#f05a28; --live:#2fd09b; }
+  .sheet{padding:10px 10px 12px;gap:12px}
+  .sheet > .deps, .sheet > .ad, .sheet > .foot{margin:0 8px}
+  .hero{background:var(--sea-deep);background-image:radial-gradient(120% 140% at 100% 0%, #0f86bf 0%, transparent 60%);
+        color:#fff;border-radius:14px;padding:14px 16px 12px;display:flex;flex-direction:column;gap:10px}
+  .hero .state{color:#cfe8f5}
+  .hero .dot{background:#8fb3c5}
+  .hero .dot.live{background:var(--live)}
+  .hero .dot.live::after{border-color:var(--live)}
+  .hero .headline{color:#fff}
+  .hero .sub{color:#d6ebf6}
+  .hero .sub b{color:var(--sun)}
+  .hero .sub.warn b{color:#ffb4a2}
+  .hero .bar .ends{color:#bfe0f0}
+  .hero .track{background:rgba(255,255,255,.25)}
+  .hero .track .fill{background:#fff}
+  .hero .track .zone{background:rgba(255,177,59,.55)}
+  .hero .track .pin{background:var(--hull)}
+  .deps{border-top:0;padding-top:2px}
+  .list .row.first{background:#fff1dc;color:#7a3d00}
+  .list .row.first .next{color:#c2410c}
+  .list .row.first svg{stroke:#f08a1c}
+  .ad{border:1.5px dashed #f2b36b;background:#fff8ee}
+  .ad .tag{background:#ffe2bd;color:#9a4a00}
+  .brand{border:2px solid #fff}
+  .brand b{color:var(--sea-deep)}
+  .pier i{border-color:var(--sea-deep)}
+  .pier i::after{background:var(--hull)}
+  .pier span{background:#fff;color:var(--sea-deep);box-shadow:0 2px 6px rgba(7,90,134,.18)}
+  .bubble{background:#c2410c}
+  .bubble.warn{background:#b4231f}
 </style>
 </head>
 <body>
@@ -139,6 +173,7 @@
 </div>
 
 <section class="sheet" id="sheet" aria-live="polite">
+ <div class="hero">
   <div class="state"><span class="dot" id="dot"></span><span id="state">Connecting…</span></div>
   <div>
     <div class="headline" id="headline">Waiting for the ferry…</div>
@@ -149,6 +184,7 @@
     <div class="ends"><span id="endA"></span><span id="endB"></span></div>
     <div class="track" id="track"><div class="zone" id="zone"></div><div class="fill" id="fill"></div><div class="pin" id="pin"></div></div>
   </div>
+ </div>
 
   <div class="deps" id="deps" hidden>
     <div class="head"><span>Departures</span><span>approx. ±1–2 min</span></div>
@@ -168,10 +204,12 @@
     </div>
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5f7682" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7"/><path d="M9 7h8v8"/></svg>
   </a>
-  <div class="foot"><span>Unofficial tracker</span><span>© Esri · OpenStreetMap</span></div>
+  <div class="foot"><span>Unofficial tracker</span><span id="credit">© OpenFreeMap · OpenStreetMap</span></div>
 </section>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.22/leaflet-maplibre-gl.js"></script>
 <script src="https://unpkg.com/mqtt@5.7.0/dist/mqtt.min.js"></script>
 <script src="config.js"></script>
 <script>
@@ -214,9 +252,39 @@
     zoomControl:false, attributionControl:false, dragging:false, touchZoom:false,
     scrollWheelZoom:false, doubleClickZoom:false, boxZoom:false, keyboard:false, zoomSnap:0.1
   });
-  // Light grey base map without labels (Esri, free, no key)
-  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
-    { maxNativeZoom:16, maxZoom:19 }).addTo(map);
+  // Base map: OpenFreeMap (free, no key), recoloured like the design, labels hidden.
+  // If it can't load (old phone without WebGL), fall back to Esri light grey.
+  function esriFallback(){
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+      { maxNativeZoom:16, maxZoom:19 }).addTo(map);
+    $('credit').textContent = '© Esri · OpenStreetMap';
+  }
+  try {
+    if (!(window.maplibregl && L.maplibreGL && maplibregl.supported && maplibregl.supported())) throw new Error('no gl');
+    const gl = L.maplibreGL({ style:'https://tiles.openfreemap.org/styles/liberty', interactive:false }).addTo(map);
+    const mm = gl.getMaplibreMap();
+    const paint = (id, prop, val) => { try { mm.setPaintProperty(id, prop, val); } catch(e){} };
+    let coloured = false;
+    const recolour = () => {
+      if (coloured) return;
+      const st = mm.getStyle(); if (!st || !st.layers) return;
+      coloured = true;
+      st.layers.forEach(l => {
+        const id = l.id, s = id.toLowerCase();
+        if (l.type === 'symbol'){ try { mm.setLayoutProperty(id, 'visibility', 'none'); } catch(e){} return; }
+        if (l.type === 'background') paint(id, 'background-color', '#f4f1e6');
+        if (l.type === 'fill'){
+          if (/water|ocean|sea|lake|river/.test(s)) paint(id, 'fill-color', '#7cc3e8');
+          else if (/park|wood|forest|grass|meadow|scrub|wetland|farm/.test(s)) paint(id, 'fill-color', '#bfe0a2');
+          else if (/sand|beach/.test(s)) paint(id, 'fill-color', '#f6e3b4');
+        }
+        if (l.type === 'line' && /water|river|stream|canal/.test(s)) paint(id, 'line-color', '#7cc3e8');
+      });
+    };
+    mm.on('load', recolour);
+    mm.on('idle', recolour);
+    mm.on('error', e => console.warn('map', e && e.error));
+  } catch(e){ esriFallback(); }
 
   const bounds = L.latLngBounds([[P.island.lat, P.island.lon], [P.mainland.lat, P.mainland.lon]]);
   function fit(){
@@ -229,8 +297,58 @@
     });
   }
 
-  L.polyline([[P.island.lat, P.island.lon], [P.mainland.lat, P.mainland.lon]],
-    { color:'#1b6f93', weight:2, opacity:.45, dashArray:'4 8', interactive:false }).addTo(map);
+  // ================================================================
+  //  Real route (from the GPS track of 19.09): Reenard Point → Knightstown
+  //  Route position t: 0 = Reenard Point (mainland), 1 = Knightstown (island)
+  // ================================================================
+  const ROUTE = [
+    [51.928492,-10.277524],[51.928324,-10.277783],[51.928144,-10.277974],[51.928010,-10.278237],
+    [51.927864,-10.278616],[51.927680,-10.278979],[51.927533,-10.279586],[51.927376,-10.280169],
+    [51.927232,-10.280570],[51.927043,-10.280954],[51.926831,-10.281319],[51.926610,-10.281631],
+    [51.926379,-10.281928],[51.926155,-10.282200],[51.925926,-10.282509],[51.925775,-10.282895],
+    [51.925701,-10.283363],[51.925663,-10.283972],[51.925616,-10.284628],[51.925558,-10.285245],
+    [51.925514,-10.285871],[51.925464,-10.286322],[51.925435,-10.286475]
+  ];
+  const LAT0 = ROUTE[0][0], KX = Math.cos(LAT0*Math.PI/180)*111320, KY = 110540;
+  const XY = ROUTE.map(p => [(p[1]-ROUTE[0][1])*KX, (p[0]-LAT0)*KY]);
+  const CUM = [0];
+  for (let i = 1; i < XY.length; i++) CUM.push(CUM[i-1] + Math.hypot(XY[i][0]-XY[i-1][0], XY[i][1]-XY[i-1][1]));
+  const RLEN = CUM[CUM.length-1];
+
+  function routeT(p){            // where on the route is point p (0..1)
+    const x = (p.lon-ROUTE[0][1])*KX, y = (p.lat-LAT0)*KY;
+    let best = Infinity, bestS = 0;
+    for (let i = 1; i < XY.length; i++){
+      const ax = XY[i-1][0], ay = XY[i-1][1], dx = XY[i][0]-ax, dy = XY[i][1]-ay;
+      const L2 = dx*dx + dy*dy || 1;
+      const u = Math.max(0, Math.min(1, ((x-ax)*dx + (y-ay)*dy) / L2));
+      const d = Math.hypot(ax + u*dx - x, ay + u*dy - y);
+      if (d < best){ best = d; bestS = CUM[i-1] + u*(CUM[i]-CUM[i-1]); }
+    }
+    return { t: bestS / RLEN, off: best };
+  }
+  function routeAt(t){           // point on the route at t
+    const s = clamp(t) * RLEN;
+    let i = 1; while (i < CUM.length - 1 && CUM[i] < s) i++;
+    const u = (s - CUM[i-1]) / ((CUM[i]-CUM[i-1]) || 1);
+    return { lat: ROUTE[i-1][0] + (ROUTE[i][0]-ROUTE[i-1][0])*u, lon: ROUTE[i-1][1] + (ROUTE[i][1]-ROUTE[i-1][1])*u };
+  }
+  function routeDir(t, towardIsland){   // heading of travel at t
+    const a = routeAt(t - .03), b = routeAt(t + .03);
+    return Math.round(towardIsland ? bearing(a, b) : bearing(b, a));
+  }
+  function routeSlice(t0, t1){
+    const lo = Math.min(t0, t1), hi = Math.max(t0, t1), pts = [routeAt(lo)];
+    for (let i = 0; i < CUM.length; i++){ const t = CUM[i]/RLEN; if (t > lo && t < hi) pts.push({ lat:ROUTE[i][0], lon:ROUTE[i][1] }); }
+    pts.push(routeAt(hi));
+    return pts.map(p => [p.lat, p.lon]);
+  }
+  // progress (0..1) from the pier the ferry left
+  const progress = (t, from) => from === 'mainland' ? t : 1 - t;
+  const tFromProgress = (f, from) => from === 'mainland' ? f : 1 - f;
+
+  L.polyline(ROUTE, { color:'#ffffff', weight:7, opacity:.55, interactive:false, lineCap:'round', lineJoin:'round' }).addTo(map);
+  L.polyline(ROUTE, { color:'#1b6f93', weight:2.5, opacity:.5, dashArray:'4 8', interactive:false }).addTo(map);
 
   function pierMark(k, label){
     L.marker([P[k].lat, P[k].lon], { interactive:false, keyboard:false,
@@ -345,8 +463,9 @@
       } else from = nearest;
     }
     const to = other(from);
-    const dFrom = from === 'island' ? dI : dM, dTo = from === 'island' ? dM : dI;
-    const frac = clamp(dFrom / (dFrom + dTo));
+    const rp = routeT(pos);
+    const frac = clamp(rp.off < 150 ? progress(rp.t, from)
+                                    : (from === 'island' ? dI : dM) / (dI + dM));
     const eta = Math.max(lastAtS + Cs * (1 - frac), n);
     const past = from === 'island' ? (last.dep || eta - Cs) : null;
     return { mode:'move', age, from, to, frac, eta, rows: buildRows({ pier:to, t:eta + Ss }, Cs, Ss, past) };
@@ -441,7 +560,7 @@
     if (!shown){ return; }
 
     let kind = moving ? 'move' : atPier ? 'pier' : 'grey';
-    const deg = moving ? Math.round(bearing(P[m.from], P[m.to])) : 0;
+    const deg = moving ? Math.round(routeDir(tFromProgress(m.frac, m.from), m.to === 'island') / 5) * 5 : 0;
     const key = kind + deg;
     if (!boat) boat = L.marker([shown.lat, shown.lon], { interactive:false, zIndexOffset:1000 }).addTo(map);
     if (key !== iconKey){ iconKey = key; boat.setIcon(boatIcon(kind, deg)); }
@@ -472,22 +591,34 @@
 
     // Chevrons ahead + trail behind (only while moving)
     chevs.forEach((c, i) => {
-      if (moving){ c.setIcon(chevIcon(deg, i === 0 ? 1 : .6)); if (!map.hasLayer(c)) c.addTo(map); }
+      if (moving){ if (!map.hasLayer(c)) c.addTo(map); }
       else if (map.hasLayer(c)) map.removeLayer(c);
     });
     placeGeo();
   }
 
+  // Chevrons sit on the route ahead of the ferry; trail follows the route behind it.
+  const chevKeys = ['', ''];
   function placeGeo(){
     if (!shown || !boat) return;
-    const ll = [shown.lat, shown.lon];
+    let p = shown;
+    if (cur.mode === 'move'){
+      const rp = routeT(shown);
+      if (rp.off < 60) p = routeAt(rp.t);            // keep the ferry on its route line
+      const toIsland = cur.to === 'island';
+      const f = progress(rp.t, cur.from);
+      [.35, .7].forEach((k, i) => {
+        const t = tFromProgress(f + (1 - f) * k, cur.from);
+        const d = Math.round(routeDir(t, toIsland) / 5) * 5, op = i === 0 ? 1 : .6;
+        chevs[i].setLatLng([routeAt(t).lat, routeAt(t).lon]);
+        const key = d + '/' + op;
+        if (key !== chevKeys[i]){ chevKeys[i] = key; chevs[i].setIcon(chevIcon(d, op)); }
+      });
+      trail.setLatLngs(routeSlice(tFromProgress(0, cur.from), rp.t));
+    } else trail.setLatLngs([]);
+    const ll = [p.lat, p.lon];
     boat.setLatLng(ll);
     if (bubble) bubble.setLatLng(ll);
-    if (cur.mode === 'move'){
-      const to = P[cur.to];
-      [.4, .75].forEach((f, i) => chevs[i].setLatLng([shown.lat + (to.lat - shown.lat)*f, shown.lon + (to.lon - shown.lon)*f]));
-      trail.setLatLngs([[P[cur.from].lat, P[cur.from].lon], ll]);
-    } else trail.setLatLngs([]);
   }
 
   // Refit when the card changes height
@@ -536,7 +667,7 @@
     // DEMO: pretend ferry, real-time cycle (6 min crossing, 3 min stop)
     conn = 'ok';
     const Cs = 360, Ss = 180, cyc = 2*(Cs + Ss), t0 = nowS() - (Ss + 120);
-    const lerp = (a, b, f) => ({ lat:a.lat + (b.lat-a.lat)*f, lon:a.lon + (b.lon-a.lon)*f });
+    const lerp = (a, b, f) => b === P.mainland ? routeAt(1 - f) : routeAt(f);   // follow the real route
     function demo(){
       const n = nowS(), t = (n - t0) % cyc, base = n - t;
       let msg;
