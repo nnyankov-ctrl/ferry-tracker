@@ -225,7 +225,7 @@
     map.fitBounds(bounds, {
       paddingTopLeft: [wide ? 460 : 60, 110],
       paddingBottomRight: [60, wide ? 60 : $('sheet').offsetHeight + 50],
-      maxZoom: 17, animate: false
+      maxZoom: 16.5, animate: false
     });
   }
 
@@ -497,6 +497,9 @@
     if (Math.abs(h - lastSheetH) > 4){ lastSheetH = h; fit(); placeGeo(); }
   }
   window.addEventListener('resize', () => { lastSheetH = 0; placeFit(); });
+  // Refit once everything (fonts, layout) has settled, and whenever the map box changes size
+  window.addEventListener('load', () => setTimeout(() => { lastSheetH = 0; placeFit(); }, 300));
+  if (window.ResizeObserver) new ResizeObserver(() => { lastSheetH = 0; placeFit(); }).observe($('map'));
 
   // ================================================================
   //  Ads
