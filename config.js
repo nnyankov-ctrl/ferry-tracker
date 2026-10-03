@@ -19,9 +19,11 @@ window.FERRY_CONFIG = {
   },
 
   // --- Причалы ---
+  // Точки, где паром реально стоит у причала (замерено 03.10.2026).
+  // Здесь рисуются значки причалов, и здесь начинается/кончается линия маршрута.
   piers: {
-    island:   { name: "Valentia (Knightstown)", lat: 51.925435, lon: -10.286475 },
-    mainland: { name: "Reenard Point",          lat: 51.928492, lon: -10.277524 },
+    island:   { name: "Valentia (Knightstown)", lat: 51.925464, lon: -10.286344 },
+    mainland: { name: "Reenard Point",          lat: 51.928189, lon: -10.277924 },
   },
 
   // --- Прогноз ---

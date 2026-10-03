@@ -25,6 +25,7 @@
     --shadow:0 10px 30px rgba(13,42,58,.16), 0 2px 6px rgba(13,42,58,.06);
   }
   *{box-sizing:border-box;margin:0;padding:0}
+  [hidden]{display:none !important}
   html,body{height:100%}
   body{
     font-family:'Onest',system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -300,14 +301,17 @@
   // ================================================================
   //  Real route (from the GPS track of 19.09): Reenard Point → Knightstown
   //  Route position t: 0 = Reenard Point (mainland), 1 = Knightstown (island)
+  //  The two ends are the pier points from config.js (where the ferry actually stops).
   // ================================================================
   const ROUTE = [
-    [51.928492,-10.277524],[51.928324,-10.277783],[51.928144,-10.277974],[51.928010,-10.278237],
+    [P.mainland.lat, P.mainland.lon],
+    [51.928144,-10.277974],[51.928010,-10.278237],
     [51.927864,-10.278616],[51.927680,-10.278979],[51.927533,-10.279586],[51.927376,-10.280169],
     [51.927232,-10.280570],[51.927043,-10.280954],[51.926831,-10.281319],[51.926610,-10.281631],
     [51.926379,-10.281928],[51.926155,-10.282200],[51.925926,-10.282509],[51.925775,-10.282895],
     [51.925701,-10.283363],[51.925663,-10.283972],[51.925616,-10.284628],[51.925558,-10.285245],
-    [51.925514,-10.285871],[51.925464,-10.286322],[51.925435,-10.286475]
+    [51.925514,-10.285871],
+    [P.island.lat, P.island.lon]
   ];
   const LAT0 = ROUTE[0][0], KX = Math.cos(LAT0*Math.PI/180)*111320, KY = 110540;
   const XY = ROUTE.map(p => [(p[1]-ROUTE[0][1])*KX, (p[0]-LAT0)*KY]);
@@ -429,6 +433,8 @@
     const pos = { lat:last.lat, lon:last.lon };
     const age = n - lastAtS;
     if (age > STALE) return { mode:'stale', age };
+    // The board says the ferry is not running (too long "on the way" or far from the route)
+    if (last.st === 'oos') return { mode:'oos', age };
 
     const Cs = last.avgC || DEF_C, Ss = last.avgS || DEF_S;
     const dI = distM(pos, P.island), dM = distM(pos, P.mainland), total = distM(P.island, P.mainland);
@@ -455,7 +461,13 @@
       return { mode:'pier', age, pier, waited, lo, hi, Ss, rows: buildRows({ pier, t:dep }, Cs, Ss, past) };
     }
 
+    // Which pier did the ferry leave? The board tells us (last.from), but the real GPS course
+    // wins when the ferry is clearly moving the other way (e.g. after a missed arrival).
     let from = last.from;
+    if (last.spd >= 4 && typeof last.hdg === 'number'){
+      const toI = angleOff(bearing(pos, P.island), last.hdg), toM = angleOff(bearing(pos, P.mainland), last.hdg);
+      if (Math.abs(toI - toM) >= 90) from = toI < toM ? 'mainland' : 'island';
+    }
     if (!from){
       if (last.hdg > 0){
         const toI = angleOff(bearing(pos, P.island), last.hdg), toM = angleOff(bearing(pos, P.mainland), last.hdg);
@@ -467,7 +479,8 @@
     const frac = clamp(rp.off < 150 ? progress(rp.t, from)
                                     : (from === 'island' ? dI : dM) / (dI + dM));
     const eta = Math.max(lastAtS + Cs * (1 - frac), n);
-    const past = from === 'island' ? (last.dep || eta - Cs) : null;
+    const depT = from === last.from ? last.dep : null;     // departure time only if the board's "from" holds
+    const past = from === 'island' ? (depT || eta - Cs) : null;
     return { mode:'move', age, from, to, frac, eta, rows: buildRows({ pier:to, t:eta + Ss }, Cs, Ss, past) };
   }
 
@@ -492,7 +505,7 @@
   function render(){
     const m = cur = model();
     const n = nowS();
-    const live = ['move','pier','long','away'].includes(m.mode);
+    const live = ['move','pier','long','away','oos'].includes(m.mode);
     $('dot').classList.toggle('live', live);
     $('sub').classList.toggle('warn', m.mode === 'long');
     const status = live ? `Live · updated ${ago(m.age)}` : conn === 'error' ? 'Offline' + (connErr ? ' · ' + connErr : '') : conn === 'connecting' ? 'Connecting…' : 'Live';
@@ -506,6 +519,8 @@
       setText('No fresh data', 'No fresh data', 'The ferry may not be running right now');
     } else if (m.mode === 'away'){
       setText(status, 'Ferry is off the route', 'No forecast right now');
+    } else if (m.mode === 'oos'){
+      setText(status, 'Out of service', 'The ferry is not running right now');
     } else if (m.mode === 'long'){
       setText(status, 'At ' + NAME[m.pier] + ' longer than usual', '',
         `Waiting <b>${Math.floor(m.waited/60)} min</b> · service may be suspended`);
